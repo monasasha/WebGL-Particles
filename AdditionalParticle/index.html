@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+    <title>WebGL Бенгальский огонь</title>
+    <style type="text/css">
+        body, html {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="particles" style="width: 1000px; height: 800px;"></canvas>
+</body>
+
+<script src="gl-matrix-min.js"></script>
+<script src="webgl-utils.js"></script>
+
+<script id="vertex-shader-track" type="x-shader/x-vertex">
+    attribute vec3 a_position;
+    attribute vec4 a_color;
+
+    varying vec4 v_color;
+
+    uniform mat4 u_mvMatrix;
+    uniform mat4 u_pMatrix;
+
+    void main() {
+        v_color = a_color;
+        gl_Position = u_pMatrix * u_mvMatrix * vec4(a_position, 1.0);
+    }
+</script>
+
+<script id="fragment-shader-track" type="x-shader/x-fragment">
+    precision mediump float;
+
+    varying vec4 v_color;
+
+    void main() {
+        gl_FragColor = v_color;
+    }
+</script>
+
+<script id="vertex-shader-spark" type="x-shader/x-vertex">
+    attribute vec3 a_position;
+
+    uniform mat4 u_mvMatrix;
+    uniform mat4 u_pMatrix;
+
+    void main() {
+        gl_Position = u_pMatrix * u_mvMatrix * vec4(a_position, 1.0);
+        gl_PointSize = 32.0;
+    }
+</script>
+
+<script id="fragment-shader-spark" type="x-shader/x-fragment">
+    precision mediump float;
+
+    uniform sampler2D u_texture;
+    uniform vec3 uColor;
+
+    void main() {
+        gl_FragColor = vec4(uColor,1.0)*texture2D(u_texture, gl_PointCoord);
+    }
+</script>
+
+<script>
+
+function Spark(inX,inY,type, color,iNumber, angle) {
+    this.init(inX,inY,type,color,iNumber, angle);
+};
+
+// количество искр
+Spark.sparksCount = 200;
+//Spark.color = [0.1,0.0,0.0];
+Spark.prototype.init = function(initX, initY,sparkType,iColor,number,inAngle) {
+    // время создания искры
+    if(iColor == undefined)
+    {
+        iColor=[0.1,0,0];
+    }
+    this.tmpCoef = Math.random()-0.5;
+    if(this.tmpCoef>0)
+    {
+        this.tmpCoef  = 1.0;
+    }
+    else
+    {
+        this.tmpCoef = -1.0;
+    }
+    this.iColor = iColor;
+    this.timeFromCreation = performance.now();
+    this.startPos = {x:initX,y:initY};
+    // задаём направление полёта искры в градусах, от 0 до 360
+    let angle;//
+    var radius = 0.0;
+    switch (sparkType){
+        case(1):
+            angle = inAngle;//Math.random()*3.14*2;
+            radius = Math.random()*3.14*2;
+            this.r = radius;
+            //console.log(radius);
+            this.xMax = (Math.cos(angle) * radius);
+            this.yMax = (Math.sin(angle) * radius);
+            break;
+        case(2):
+            angle = Math.random()*3.14*2;
+            radius = Math.sqrt(Math.cos(angle*7.0));
+            this.r = radius;
+            this.xMax = (Math.cos(angle) * radius);
+            this.yMax = (Math.sin(angle) * radius);
+            break;
+        case(3):
+            angle = Math.random()*3.14;
+            /*let ad = 1;
+            if(Math.random()-0.5<0)
+            {
+                ad=-1;
+            }*/
+            radius = 0.2*(Math.exp(Math.sin(angle))-3*Math.cos(4*angle)+Math.pow(Math.sin((2*angle-3.14)/24),5));//ad*Math.cos(angle/2);
+            this.r = radius;
+
+            this.xMax = (Math.cos(angle) * radius);
+            this.yMax = (Math.sin(angle) * radius);
+            break;
+        case(4):
+            angle = Math.random()*6.28;
+            radius = 0.3*(((Math.sin(angle)*Math.sqrt(Math.abs(Math.cos(angle))))/(Math.sin(angle)+7/5))-2*Math.sin(angle)+2);
+            //
+            this.r = radius;
+            this.xMax = (Math.cos(angle) * radius);
+            this.yMax = (Math.sin(angle) * radius);
+            break;
+
+    }
+    // dx и dy - приращение искры за вызов отрисовки, то есть её скорость,
+    // у каждой искры своя скорость. multiplier подобран экспериментально
+    this.multiplier = 125 + 1.0*Math.random() * 125;
+    //this.r = radius;
+
+
+    // Для того, чтобы не все искры начинали движение из начала координат,
+    // делаем каждой искре свой отступ, но не более максимальных значений.
+    this.x = this.startPos.x;//(Math.random()-0.5)*2;//this.startPos.x;//+((this.dx * 1000) % this.xMax);
+    this.y = this.startPos.y;//(Math.random()-0.5)*2;//this.startPos.y;//+((this.dy * 1000) % this.yMax);
+    this.dx = this.x*Math.cos(0.1)+this.y*Math.sin(0.1);//(this.xMax / this.multiplier);
+    this.dy = -this.x*Math.sin(0.1)+this.y*Math.cos(0.1);
+    this.dx = this.dx/this.multiplier;
+    this.dy = this.dy/this.multiplier;//(this.yMax / this.multiplier);
+    this.phi = 0.0;
+    //console.log(this.r);
+    this.dT = number;
+    this.lifeTime = 0;
+    this.scale = Math.random();
+};
+
+Spark.prototype.canMove = function (time){
+    var timeShift = time - this.timeFromCreation;
+    this.timeFromCreation = time;
+    var speed = 3.0;
+    let xSp =this.x*Math.cos(this.phi)-this.y*Math.sin(this.phi);
+    let ySp =+this.x*Math.sin(this.phi)+this.y*Math.cos(this.phi);
+    xSp = (xSp+timeShift)/this.multiplier;
+    ySp = (ySp+timeShift)/this.multiplier;
+    xSp = xSp*speed;
+    ySp = ySp *speed;
+    let endLine = this.getLine();
+    // если искра достигла конечной точки, запускаем её заново из начала координат
+    if (Math.abs(xSp-this.startPos.x) > Math.abs(this.xMax) || Math.abs(ySp-this.startPos.y) > Math.abs(this.yMax)) {
+        return "can";
+    }
+}
+
+Spark.prototype.move = function(time) {
+    // находим разницу между вызовами отрисовки, чтобы анимация работала
+    // одинаково на компьютерах разной мощности
+    var timeShift = time - this.timeFromCreation;
+
+    this.timeFromCreation = time;
+    this.phi += this.scale/10;
+    this.dT += (this.scale/100);
+    //console.log(this.dT);
+    this.dx = this.x*Math.cos(this.phi)-this.y*Math.sin(this.phi);//(this.xMax / this.multiplier);
+    this.dy = +this.x*Math.sin(this.phi)+this.y*Math.cos(this.phi);
+    //this.dx = ((this.dx+timeShift)/this.multiplier);
+    //this.dy =  (this.dy+timeShift)/this.multiplier;
+
+
+    // приращение зависит от времени между отрисовками
+    var speed = 5.0;
+        this.x += (this.dx/this.multiplier)*speed;
+        this.y += (this.dy/this.multiplier)*speed;
+    let endLine = this.getLine();
+    // если искра достигла конечной точки, запускаем её заново из начала координат
+
+};
+
+Spark.prototype.getLine = function ()
+{
+    let retVal = {x:0,y:0};
+    let coef = 0.7-Math.abs(this.startPos.x-this.x);
+    if(this.x != 0&& this.y != 0)
+    {
+        let lineX = this.x- this.dx*0.5*this.multiplier*coef;
+        let lineY = this.y - this.dy*0.5*this.multiplier*coef;
+        retVal = {x: lineX,y:lineY};
+
+    }
+    return retVal;
+}
+
+
+function main() {
+    var canvas = document.getElementById("particles");
+    var gl = canvas.getContext("webgl");
+    if (!gl) {
+        return;
+    }
+
+    // gl.SRC_ALPHA - рисуемая искра умножается на прозрачный канал, чтобы убрать фон
+    // изображения. gl.ONE - уже нарисованные искры остаются без изменений
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
+
+    var programTrack = webglUtils.createProgramFromScripts(gl, ["vertex-shader-track", "fragment-shader-track"]);
+
+    var positionAttributeLocationTrack = gl.getAttribLocation(programTrack, "a_position");
+    var colorAttributeLocationTrack = gl.getAttribLocation(programTrack, "a_color");
+    var pMatrixUniformLocationTrack = gl.getUniformLocation(programTrack, "u_pMatrix");
+    var mvMatrixUniformLocationTrack = gl.getUniformLocation(programTrack, "u_mvMatrix");
+
+    var programSpark = webglUtils.createProgramFromScripts(gl, ["vertex-shader-spark", "fragment-shader-spark"]);
+
+    var positionAttributeLocationSpark = gl.getAttribLocation(programSpark, "a_position");
+    var textureLocationSpark = gl.getUniformLocation(programSpark, "u_texture");
+    var pMatrixUniformLocationSpark = gl.getUniformLocation(programSpark, "u_pMatrix");
+    var mvMatrixUniformLocationSpark = gl.getUniformLocation(programSpark, "u_mvMatrix");
+
+    var texture = gl.createTexture();
+    var image = new Image();
+    image.src = "spark.png";
+    image.addEventListener('load', function() {
+        gl.bindTexture(gl.TEXTURE_2D, texture);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
+        gl.generateMipmap(gl.TEXTURE_2D);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+        gl.bindTexture(gl.TEXTURE_2D, null);
+
+        requestAnimationFrame(drawScene);
+    });
+
+    var mvMatrix = mat4.create();
+    var pMatrix = mat4.create();
+
+    function drawTracks(positions, positionsV) {
+        var colors = [];
+        var positionsFromCenter = [];
+        let z = 0;
+        for (var i = 0; i < positions.length; i += 3) {
+            // для каждой координаты добавляем точку начала координат, чтобы получить след искры
+            positionsFromCenter.push(positions[i]+0.01,positions[i + 1]+0.01,positions[i + 2]);
+            positionsFromCenter.push(positions[i], positions[i + 1], positions[i + 2]);
+            // цвет в начале координат будет белый (горячий), а дальше будет приближаться к оранжевому
+            let r = sparks[z].iColor[0];
+            let g = sparks[z].iColor[1];
+            let b = sparks[z].iColor[2];
+            colors.push(0.5, 0.01, 0.01,0.1,r, g, b,1.0);
+            z++;
+        }
+
+        gl.useProgram(programTrack);
+
+        gl.uniformMatrix4fv(pMatrixUniformLocationTrack, false, pMatrix);
+        gl.uniformMatrix4fv(mvMatrixUniformLocationTrack, false, mvMatrix);
+
+        var positionBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(positionsFromCenter), gl.STATIC_DRAW);
+
+        gl.vertexAttribPointer(positionAttributeLocationTrack, 3, gl.FLOAT, false, 0, 0);
+        gl.enableVertexAttribArray(positionAttributeLocationTrack);
+
+        var colorBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, colorBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(colors), gl.STATIC_DRAW);
+
+        gl.vertexAttribPointer(colorAttributeLocationTrack, 4, gl.FLOAT, false, 0, 0);
+        gl.enableVertexAttribArray(colorAttributeLocationTrack);
+
+        gl.drawArrays(gl.LINES, 0, positionsFromCenter.length / 3);
+    }
+
+    function drawSparks(positions) {
+        gl.useProgram(programSpark);
+        gl.uniformMatrix4fv(pMatrixUniformLocationSpark, false, pMatrix);
+        gl.uniformMatrix4fv(mvMatrixUniformLocationSpark, false, mvMatrix);
+        let color = gl.getUniformLocation(programSpark,"uColor");
+        gl.uniform3fv(color,[0.0,0.0,0.0]);
+
+        var positionBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(positions), gl.STATIC_DRAW);
+
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, texture);
+        gl.uniform1i(textureLocationSpark, 0);
+
+        gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+
+        gl.vertexAttribPointer(positionAttributeLocationSpark, 3, gl.FLOAT, false, 0, 0);
+
+        gl.enableVertexAttribArray(positionAttributeLocationSpark);
+
+        gl.drawArrays(gl.POINTS, 0, positions.length / 3);
+    }
+    var sparks = [];
+    let adding = 0.0;
+    for (var i = 0; i < 250; i++) {
+        createSparks(2);//sparks.push(new Spark(0.0+i/1000,1.0+i/1000,0,[1.0,0.0,0.0,0.0],0 )); //sparks.push(new Spark(x,y,type,color,i/100000));
+    }
+
+    function createSparks(type){
+        //sparks = [];
+        //console.log(Math.floor(sparks.length/200));
+        let color = [Math.random(),Math.random(),Math.random()];
+        let x = 0.0;//(Math.random()-0.5)*3.0;//Math.random();
+        let y = 1.0;//Math.random()*1.5;
+        for(let i =0 ; i< Spark.sparksCount;i++)
+        {
+            sparks.push(new Spark(x,y,type,color,i/10,-6.28*i/200));
+        }
+    }
+
+    function drawScene(now) {
+        // обновляем размер canvas на случай, если он растянулся или сжался вслед за страницей
+        webglUtils.resizeCanvasToDisplaySize(gl.canvas);
+
+        gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
+
+        gl.clearColor(0, 0, 0, 1);
+        gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+        mat4.perspective(pMatrix, 45, gl.canvas.width / gl.canvas.height, 0.1, 100.0);
+        mat4.identity(mvMatrix);
+        mat4.translate(mvMatrix, mvMatrix, [0, 0, -3.5]);
+
+
+        let newSparks = []
+        for (var i = 0; i < sparks.length; i++) {
+            let can = sparks[i].canMove(now);
+            if(can!="can")
+            {
+                sparks[i].move(now);
+                newSparks.push(sparks[i]);
+            }
+        }
+        sparks = newSparks;
+        var positions = [];
+        sparks.forEach(function(item, i, arr) {
+            positions.push(item.x);
+            positions.push(item.y);
+            // искры двигаются только в одной плоскости xy
+            positions.push(0);
+        });
+        var positionsV = [];
+        sparks.forEach(function (item){
+            positionsV.push(item.getLine().x);
+            positionsV.push(item.getLine().y);
+            positionsV.push(0);
+        })
+        //console.log(positions);
+        drawTracks(positions, positionsV);
+        drawSparks(positions);
+
+
+        requestAnimationFrame(drawScene);
+    }
+
+    addEventListener("keydown", alertKey);
+    addEventListener('click', click);
+
+    function click(e)
+    {
+       // alert(e.clientX);
+    }
+    function alertKey(e)
+    {
+        if(e.key == "f" || e.key=="F")
+        {
+            createSparks(1);
+        }
+        if(e.key == "G" || e.key=="g")
+        {
+            createSparks(2);
+        }
+        if(e.key =="H"||e.key =="h")
+        {
+            createSparks(3);
+        }
+        if(e.key =="J"||e.key =="j")
+        {
+            createSparks(4);
+        }
+    }
+}
+
+main();
+</script>
+
+</html>
